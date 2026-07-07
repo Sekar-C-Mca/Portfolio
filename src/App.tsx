@@ -61,14 +61,15 @@ const projects = [
   {
     id: 1,
     title: 'Code Ally',
-    subtitle: 'Multi-Agent AI Platform',
+    subtitle: 'GenAI RAG Coding Assistant',
     description:
-      'Production-grade Multi-Agent AI Platform capable of orchestrating multiple LLM-powered agents with memory, planning, context retrieval, and autonomous task execution.',
-    tech: ['Multi-Agent Architecture', 'LangChain', 'Tool Calling', 'RAG', 'Vector DB', 'FastAPI'],
-    features: ['Multi-Agent Orchestration', 'Context Memory', 'Prompt Engineering', 'RAG Pipeline', 'Tool Calling', 'Scalable Backend'],
-    github: 'https://github.com/Sekar-C-Mca/Code-Ally',
+      'GenAI-powered RAG application that helps developers reason over code context using retrieval, LLM prompting, contextual responses, and a deployed production frontend.',
+    tech: ['GenAI', 'RAG', 'LLM Prompting', 'Context Retrieval', 'Vector Search', 'Vercel'],
+    features: ['Retrieval-Augmented Generation', 'Code Context Understanding', 'Prompt Engineering', 'Semantic Search', 'Context-Aware Responses', 'Production Deployment'],
+    github: 'https://github.com/Sekar-C-Mca/Code-Ally-V2',
+    demo: 'https://code-ally-v2.vercel.app/',
     icon: <Network className="w-5 h-5" />,
-    tag: 'AI Agents',
+    tag: 'GenAI RAG',
     featured: true,
   },
   {
