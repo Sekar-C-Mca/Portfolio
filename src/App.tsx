@@ -8,19 +8,16 @@ import {
   Code2,
   Brain,
   Code,
-  GitBranch,
   ChevronUp,
   Menu,
   X,
   Download,
-  Layers,
   Cpu,
   Terminal,
   BookOpen,
   Database,
   Server,
   Zap,
-  Box,
   Globe,
   FlaskConical,
   Network,
@@ -31,7 +28,6 @@ import {
   Activity,
   Search,
   MessageSquare,
-  Workflow,
   BarChart3,
   CloudCog,
   Braces,
@@ -211,7 +207,7 @@ function Navbar() {
     return () => window.removeEventListener('scroll', fn);
   }, []);
 
-  const links = ['Education', 'About', 'Expertise', 'Projects', 'Open Source', 'GitHub', 'LeetCode', 'Contact'];
+  const links = ['Education', 'About', 'Expertise', 'Projects', 'Open Source', 'Activity', 'LeetCode', 'Contact'];
 
   return (
     <nav
@@ -236,7 +232,7 @@ function Navbar() {
             {links.map((l) => (
               <a
                 key={l}
-                href={`#${l.toLowerCase().replaceAll(' ', '-')}`}
+                href={`#${l.toLowerCase().replace(/\s+/g, '-')}`}
                 className="px-3 py-2 text-sm text-gray-400 hover:text-white rounded-lg hover:bg-white/5 transition-all"
               >
                 {l}
@@ -264,7 +260,7 @@ function Navbar() {
             {links.map((l) => (
               <a
                 key={l}
-                href={`#${l.toLowerCase().replaceAll(' ', '-')}`}
+                href={`#${l.toLowerCase().replace(/\s+/g, '-')}`}
                 onClick={() => setMobileOpen(false)}
                 className="block px-4 py-2.5 text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-all text-sm"
               >
@@ -828,51 +824,62 @@ function Projects() {
   );
 }
 
-// ─── Real contribution heatmap (seeded, deterministic, ~227 total) ────────────
+type LeetCodeSubmission = {
+  title: string;
+  titleSlug: string;
+  timestamp: string;
+  statusDisplay: string;
+  lang: string;
+};
 
-function buildHeatmap(): number[][] {
-  // Deterministic LCG — same pattern on every render
-  let s = 0xdeadbeef;
-  const rng = () => {
-    s = Math.imul(s ^ (s >>> 17), 0x45d9f3b);
-    s = Math.imul(s ^ (s >>> 31), 0x119de1f3);
-    s ^= s >>> 15;
-    return (s >>> 0) / 0x100000000;
-  };
+type LeetCodeStats = {
+  totalSolved: number;
+  totalQuestions: number;
+  easySolved: number;
+  totalEasy: number;
+  mediumSolved: number;
+  totalMedium: number;
+  hardSolved: number;
+  totalHard: number;
+  ranking: number;
+  contributionPoint: number;
+  reputation: number;
+  submissionCalendar: Record<string, number>;
+  recentSubmissions: LeetCodeSubmission[];
+};
 
-  // Month-bucket density weights matching the real graph (Jul→Jun)
-  // Real graph: sparse Jul–Aug, picking up Sep–Nov, lighter Dec, active Jan–Jun
-  const monthWeights = [0.08, 0.1, 0.25, 0.35, 0.4, 0.28, 0.3, 0.45, 0.5, 0.55, 0.45, 0.35];
-  const weeksPerMonth = [4, 4, 5, 4, 5, 4, 4, 4, 4, 5, 4, 5];
+function buildLeetCodeHeatmap(calendar: Record<string, number>) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const start = new Date(today);
+  start.setDate(start.getDate() - 7 * 52 - start.getDay());
 
-  const weeks: number[][] = [];
-  let monthIdx = 0;
-  let weekInMonth = 0;
+  const weeks: { count: number; date: string }[][] = [];
+  let max = 0;
 
   for (let w = 0; w < 53; w++) {
-    if (weekInMonth >= weeksPerMonth[monthIdx]) {
-      monthIdx = Math.min(monthIdx + 1, 11);
-      weekInMonth = 0;
-    }
-    const density = monthWeights[monthIdx];
-    const week: number[] = [];
+    const week: { count: number; date: string }[] = [];
     for (let d = 0; d < 7; d++) {
-      const r = rng();
-      if (r > 1 - density * 0.6) {
-        week.push(r > 1 - density * 0.15 ? 4 : r > 1 - density * 0.3 ? 3 : 2);
-      } else if (r > 1 - density * 1.4) {
-        week.push(1);
-      } else {
-        week.push(0);
-      }
+      const date = new Date(start);
+      date.setDate(start.getDate() + w * 7 + d);
+      const timestamp = Math.floor(date.getTime() / 1000).toString();
+      const count = calendar[timestamp] ?? 0;
+      max = Math.max(max, count);
+      week.push({ count, date: date.toISOString().slice(0, 10) });
     }
     weeks.push(week);
-    weekInMonth++;
   }
-  return weeks;
+
+  return { weeks, max };
 }
 
-const HEATMAP = buildHeatmap();
+function getHeatLevel(count: number, max: number) {
+  if (count === 0 || max === 0) return 0;
+  if (count <= Math.ceil(max * 0.25)) return 1;
+  if (count <= Math.ceil(max * 0.5)) return 2;
+  if (count <= Math.ceil(max * 0.75)) return 3;
+  return 4;
+}
 
 // ─── Open Source Contributions ────────────────────────────────────────────────
 
@@ -975,40 +982,71 @@ function OpenSourceSection() {
   );
 }
 
-// ─── GitHub Activity ──────────────────────────────────────────────────────────
+// ─── Live Coding Activity ─────────────────────────────────────────────────────
 
 function GitHubSection() {
-  const colors = ['bg-white/5', 'bg-emerald-900/60', 'bg-emerald-700/70', 'bg-emerald-500', 'bg-emerald-400'];
+  const [leetcodeStats, setLeetcodeStats] = useState<LeetCodeStats | null>(null);
+  const [loadingLeetcode, setLoadingLeetcode] = useState(true);
+  const [leetcodeError, setLeetcodeError] = useState('');
+  const colors = ['bg-white/5', 'bg-emerald-900/70', 'bg-emerald-700/80', 'bg-emerald-500', 'bg-emerald-400'];
   const months = ['Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-  const contributionFilters = [
-    { label: '@sugarlabs', image: 'https://github.com/sugarlabs.png' },
-    { label: '@rust-lang', image: 'https://github.com/rust-lang.png' },
-    { label: '@llvm', image: 'https://github.com/llvm.png' },
-  ];
+  const heatmap = leetcodeStats ? buildLeetCodeHeatmap(leetcodeStats.submissionCalendar) : null;
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadLeetcodeStats() {
+      try {
+        const res = await fetch('https://alfa-leetcode-api.onrender.com/syntax_error_s/profile');
+        if (!res.ok) {
+          throw new Error('LeetCode API request failed');
+        }
+        const data = (await res.json()) as LeetCodeStats;
+        if (active) {
+          setLeetcodeStats(data);
+          setLeetcodeError('');
+        }
+      } catch {
+        if (active) {
+          setLeetcodeError('Live LeetCode activity is temporarily unavailable.');
+        }
+      } finally {
+        if (active) {
+          setLoadingLeetcode(false);
+        }
+      }
+    }
+
+    loadLeetcodeStats();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   return (
-    <section id="github" className="py-24 bg-[#050a0e]">
+    <section id="activity" className="py-24 bg-[#050a0e]">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <SectionHeader label="Activity" title="GitHub Engineering Activity" />
+        <SectionHeader label="Live Activity" title="LeetCode Coding Dashboard" />
 
-        {/* Stats Row */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
           {[
-            { icon: <GitCommit className="w-5 h-5" />, value: '227', label: 'Contributions in the last year', color: 'text-emerald-400' },
-            { icon: <Code2 className="w-5 h-5" />, value: '92+', label: 'Repositories', color: 'text-cyan-400' },
-            { icon: <GitBranch className="w-5 h-5" />, value: '14%', label: 'Pull Requests', color: 'text-emerald-400' },
-            { icon: <Star className="w-5 h-5" />, value: '82%', label: 'Commits', color: 'text-cyan-400' },
+            { icon: <Award className="w-5 h-5" />, value: leetcodeStats?.totalSolved, label: 'Problems solved', color: 'text-emerald-400' },
+            { icon: <Activity className="w-5 h-5" />, value: leetcodeStats?.ranking ? `#${leetcodeStats.ranking.toLocaleString()}` : undefined, label: 'LeetCode ranking', color: 'text-cyan-400' },
+            { icon: <GitCommit className="w-5 h-5" />, value: leetcodeStats?.contributionPoint, label: 'Contribution points', color: 'text-emerald-400' },
+            { icon: <Star className="w-5 h-5" />, value: leetcodeStats?.reputation, label: 'Reputation', color: 'text-cyan-400' },
           ].map((s, i) => (
             <a
               key={i}
-              href={socialLinks.github}
+              href={socialLinks.leetcode}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 p-4 bg-white/3 border border-white/8 rounded-2xl hover:border-emerald-400/40 transition-all"
             >
               <div className={s.color}>{s.icon}</div>
               <div>
-                <div className={`text-xl font-bold ${s.color}`}>{s.value}</div>
+                <div className={`text-xl font-bold ${s.color}`}>
+                  {loadingLeetcode ? '...' : s.value ?? '--'}
+                </div>
                 <div className="text-gray-600 text-xs">{s.label}</div>
               </div>
             </a>
@@ -1016,17 +1054,29 @@ function GitHubSection() {
         </div>
 
         <div className="grid lg:grid-cols-[1fr_128px] gap-5">
-          {/* GitHub-style contribution panel */}
           <div className="bg-white/3 border border-white/10 rounded-lg overflow-hidden">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-5 pt-5 pb-4">
-              <h3 className="text-base font-normal text-white">227 contributions in the last year</h3>
-              <button className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300 transition-colors sm:ml-auto">
-                Contribution settings
-                <ChevronUp className="w-3 h-3 rotate-180" />
-              </button>
+              <div>
+                <h3 className="text-base font-normal text-white">
+                  {loadingLeetcode
+                    ? 'Loading live LeetCode activity'
+                    : leetcodeStats
+                      ? `${leetcodeStats.totalSolved} LeetCode problems solved`
+                      : 'LeetCode activity unavailable'}
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">Live data from alfa-leetcode-api for syntax_error_s</p>
+              </div>
+              <a
+                href={socialLinks.leetcode}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300 transition-colors sm:ml-auto"
+              >
+                leetcode.com/syntax_error_s
+                <ExternalLink className="w-3 h-3" />
+              </a>
             </div>
 
-            {/* Month labels */}
             <div className="px-5 overflow-x-auto">
               <div className="min-w-max">
                 <div className="flex gap-0.5 mb-1 pl-7">
@@ -1043,24 +1093,35 @@ function GitHubSection() {
                     ))}
                   </div>
                   <div className="flex gap-0.5">
-                    {HEATMAP.map((week, wi) => (
-                      <div key={wi} className="flex flex-col gap-0.5">
-                        {week.map((level, di) => (
-                          <div
-                            key={di}
-                            className={`w-2.5 h-2.5 rounded-sm ${colors[level]} transition-opacity hover:opacity-80`}
-                            title={level > 0 ? `${level * 2} contributions` : 'No contributions'}
-                          />
+                    {heatmap
+                      ? heatmap.weeks.map((week, wi) => (
+                          <div key={wi} className="flex flex-col gap-0.5">
+                            {week.map((day) => {
+                              const level = getHeatLevel(day.count, heatmap.max);
+                              return (
+                                <div
+                                  key={day.date}
+                                  className={`w-2.5 h-2.5 rounded-sm ${colors[level]} transition-opacity hover:opacity-80`}
+                                  title={day.count > 0 ? `${day.count} submissions on ${day.date}` : `No submissions on ${day.date}`}
+                                />
+                              );
+                            })}
+                          </div>
+                        ))
+                      : Array.from({ length: 53 }).map((_, wi) => (
+                          <div key={wi} className="flex flex-col gap-0.5">
+                            {Array.from({ length: 7 }).map((__, di) => (
+                              <div key={di} className="w-2.5 h-2.5 rounded-sm bg-white/5 animate-pulse" />
+                            ))}
+                          </div>
                         ))}
-                      </div>
-                    ))}
                   </div>
                 </div>
               </div>
             </div>
 
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-5 pt-3 pb-4 text-xs text-gray-500">
-              <span>Learn how we count contributions</span>
+              <span>{leetcodeError || 'Submission calendar reflects live LeetCode API data.'}</span>
               <div className="flex items-center gap-1.5">
                 <span>Less</span>
                 {colors.map((c, i) => <div key={i} className={`w-2.5 h-2.5 rounded-sm ${c}`} />)}
@@ -1069,86 +1130,71 @@ function GitHubSection() {
             </div>
 
             <div className="border-t border-white/10 px-5 py-4">
-              <div className="flex flex-wrap gap-2 mb-5">
-                {contributionFilters.map((filter) => (
-                  <button
-                    key={filter.label}
-                    className="inline-flex items-center gap-2 px-2.5 py-1.5 border border-white/10 rounded-md bg-white/3 text-xs font-medium text-white hover:border-emerald-400/40 hover:bg-emerald-400/5 transition-all"
-                  >
-                    <img src={filter.image} alt="" className="w-4 h-4 rounded-sm" loading="lazy" />
-                    {filter.label}
-                  </button>
-                ))}
-                <button className="px-5 py-1.5 border border-white/10 rounded-md bg-white/3 text-xs font-medium text-gray-400 hover:text-white hover:border-white/20 transition-all">
-                  More
-                </button>
-              </div>
-
               <div className="grid md:grid-cols-[1fr_1.1fr] gap-8">
                 <div>
                   <h4 className="text-sm font-semibold text-white mb-5">Activity Overview</h4>
-                  <div className="flex items-start gap-3">
-                    <BookOpen className="w-4 h-4 text-gray-500 mt-0.5 shrink-0" />
-                    <p className="text-sm text-white leading-relaxed">
-                      Contributed to{' '}
-                      <a href="https://github.com/Sekar-C-Mca/Github-Actions-Project" target="_blank" rel="noopener noreferrer" className="text-[#2f81f7] font-semibold hover:underline">
-                        Sekar-C-Mca/Github-Actions-Pr...
+                  <div className="space-y-3">
+                    {leetcodeStats?.recentSubmissions?.slice(0, 4).map((submission) => (
+                      <a
+                        key={`${submission.titleSlug}-${submission.timestamp}`}
+                        href={`https://leetcode.com/problems/${submission.titleSlug}/`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-start gap-3 text-sm text-white hover:text-emerald-300 transition-colors"
+                      >
+                        <BookOpen className="w-4 h-4 text-gray-500 mt-0.5 shrink-0" />
+                        <span>
+                          {submission.title}
+                          <span className="ml-2 text-xs text-gray-500">{submission.lang} · {submission.statusDisplay}</span>
+                        </span>
                       </a>
-                      ,{' '}
-                      <a href="https://github.com/Sekar-C-Mca/Ai-RNN-Project" target="_blank" rel="noopener noreferrer" className="text-[#2f81f7] font-semibold hover:underline">
-                        Sekar-C-Mca/Ai-RNN-Project
-                      </a>
-                      ,{' '}
-                      <a href="https://github.com/Sekar-C-Mca/Ai-Chatbot-" target="_blank" rel="noopener noreferrer" className="text-[#2f81f7] font-semibold hover:underline">
-                        Sekar-C-Mca/Ai-Chatbot-
-                      </a>{' '}
-                      and 93 other repositories
-                    </p>
+                    ))}
+                    {!loadingLeetcode && !leetcodeStats && (
+                      <p className="text-sm text-gray-400">Live recent submissions could not be loaded right now.</p>
+                    )}
                   </div>
                 </div>
 
-                <div className="relative min-h-56">
-                  <div className="absolute inset-x-8 top-1/2 h-px bg-emerald-400/80" />
-                  <div className="absolute inset-y-6 left-1/2 w-px bg-emerald-400/80" />
-                  <div className="absolute left-[18%] top-1/2 -translate-y-1/2 text-right">
-                    <div className="text-xs text-gray-400">82%</div>
-                    <div className="text-xs text-gray-500">Commits</div>
-                  </div>
-                  <div className="absolute right-[8%] top-1/2 -translate-y-1/2">
-                    <div className="text-xs text-gray-400">3%</div>
-                    <div className="text-xs text-gray-500">Issues</div>
-                  </div>
-                  <div className="absolute left-1/2 -translate-x-1/2 top-0 text-center">
-                    <div className="text-xs text-gray-400">1%</div>
-                    <div className="text-xs text-gray-500">Code review</div>
-                  </div>
-                  <div className="absolute left-1/2 -translate-x-1/2 bottom-0 text-center">
-                    <div className="text-xs text-gray-400">14%</div>
-                    <div className="text-xs text-gray-500">Pull requests</div>
-                  </div>
-                  <div className="absolute left-[34%] top-1/2 h-5 -translate-y-1/2 origin-right rounded-full bg-emerald-400/70" style={{ width: '26%', clipPath: 'polygon(0 50%, 100% 10%, 100% 90%)' }} />
-                  <div className="absolute left-1/2 top-1/2 w-3 h-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-400 ring-4 ring-[#050a0e]" />
-                  <div className="absolute left-[43%] top-[58%] w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-[#050a0e]" />
-                  <div className="absolute left-[43%] top-[42%] w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-[#050a0e]" />
+                <div className="space-y-4">
+                  {[
+                    { label: 'Easy', solved: leetcodeStats?.easySolved, total: leetcodeStats?.totalEasy, color: 'bg-emerald-500', text: 'text-emerald-400' },
+                    { label: 'Medium', solved: leetcodeStats?.mediumSolved, total: leetcodeStats?.totalMedium, color: 'bg-yellow-500', text: 'text-yellow-400' },
+                    { label: 'Hard', solved: leetcodeStats?.hardSolved, total: leetcodeStats?.totalHard, color: 'bg-red-500', text: 'text-red-400' },
+                  ].map((item) => {
+                    const pct = item.solved && item.total ? Math.max(4, (item.solved / item.total) * 100) : 0;
+                    return (
+                      <div key={item.label}>
+                        <div className="flex justify-between mb-1.5">
+                          <span className="text-sm text-gray-400">{item.label}</span>
+                          <span className={`text-sm font-medium ${item.text}`}>
+                            {loadingLeetcode ? '...' : `${item.solved ?? '--'} / ${item.total ?? '--'}`}
+                          </span>
+                        </div>
+                        <div className="w-full bg-white/5 rounded-full h-1.5">
+                          <div className={`${item.color} h-1.5 rounded-full`} style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
           </div>
 
           <div className="hidden lg:flex flex-col gap-3">
-            {['2026', '2025', '2024'].map((year) => (
+            {['Live', 'LeetCode', 'API'].map((item) => (
               <a
-                key={year}
-                href={socialLinks.github}
+                key={item}
+                href={socialLinks.leetcode}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={`rounded-md px-5 py-3 text-sm transition-all ${
-                  year === '2026'
-                    ? 'bg-[#2f81f7] text-white'
+                  item === 'Live'
+                    ? 'bg-emerald-500 text-[#050a0e] font-semibold'
                     : 'text-gray-400 hover:bg-white/5 hover:text-white'
                 }`}
               >
-                {year}
+                {item}
               </a>
             ))}
           </div>
@@ -1527,7 +1573,7 @@ function Footer() {
             <ul className="space-y-2">
               {['Education', 'About', 'Expertise', 'Skills', 'Projects', 'Open Source', 'Contact'].map((l) => (
                 <li key={l}>
-                  <a href={`#${l.toLowerCase().replaceAll(' ', '-')}`} className="text-gray-500 hover:text-emerald-400 transition-colors text-sm">
+                  <a href={`#${l.toLowerCase().replace(/\s+/g, '-')}`} className="text-gray-500 hover:text-emerald-400 transition-colors text-sm">
                     {l}
                   </a>
                 </li>
