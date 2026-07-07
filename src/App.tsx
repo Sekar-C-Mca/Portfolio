@@ -824,60 +824,68 @@ function Projects() {
   );
 }
 
-type LeetCodeSubmission = {
-  title: string;
-  titleSlug: string;
-  timestamp: string;
-  statusDisplay: string;
-  lang: string;
+type GitHubContribution = {
+  date: string;
+  count: number;
+  level: number;
 };
 
-type LeetCodeStats = {
-  totalSolved: number;
-  totalQuestions: number;
-  easySolved: number;
-  totalEasy: number;
-  mediumSolved: number;
-  totalMedium: number;
-  hardSolved: number;
-  totalHard: number;
-  ranking: number;
-  contributionPoint: number;
-  reputation: number;
-  submissionCalendar: Record<string, number>;
-  recentSubmissions: LeetCodeSubmission[];
+type GitHubContributionsResponse = {
+  total: {
+    lastYear: number;
+  };
+  contributions: GitHubContribution[];
 };
 
-function buildLeetCodeHeatmap(calendar: Record<string, number>) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const start = new Date(today);
-  start.setDate(start.getDate() - 7 * 52 - start.getDay());
+type GitHubProfile = {
+  public_repos: number;
+  followers: number;
+  following: number;
+};
 
+type GitHubEvent = {
+  id: string;
+  type: string;
+  repo: {
+    name: string;
+  };
+  created_at: string;
+};
+
+function buildGitHubHeatmap(contributions: GitHubContribution[]) {
+  const byDate = new Map(contributions.map((day) => [day.date, day]));
+  const first = contributions[0]?.date ? new Date(`${contributions[0].date}T00:00:00`) : new Date();
+  const start = new Date(first);
+  start.setDate(first.getDate() - first.getDay());
   const weeks: { count: number; date: string }[][] = [];
-  let max = 0;
+  const monthLabels: { label: string; offset: number }[] = [];
 
   for (let w = 0; w < 53; w++) {
     const week: { count: number; date: string }[] = [];
     for (let d = 0; d < 7; d++) {
       const date = new Date(start);
       date.setDate(start.getDate() + w * 7 + d);
-      const timestamp = Math.floor(date.getTime() / 1000).toString();
-      const count = calendar[timestamp] ?? 0;
-      max = Math.max(max, count);
-      week.push({ count, date: date.toISOString().slice(0, 10) });
+      const iso = date.toISOString().slice(0, 10);
+      const contribution = byDate.get(iso);
+      if (d === 0 && date.getDate() <= 7) {
+        monthLabels.push({
+          label: date.toLocaleString('en-US', { month: 'short' }),
+          offset: w,
+        });
+      }
+      week.push({ count: contribution?.count ?? 0, date: iso });
     }
     weeks.push(week);
   }
 
-  return { weeks, max };
+  return { weeks, monthLabels };
 }
 
-function getHeatLevel(count: number, max: number) {
-  if (count === 0 || max === 0) return 0;
-  if (count <= Math.ceil(max * 0.25)) return 1;
-  if (count <= Math.ceil(max * 0.5)) return 2;
-  if (count <= Math.ceil(max * 0.75)) return 3;
+function getGitHubHeatLevel(count: number) {
+  if (count === 0) return 0;
+  if (count <= 2) return 1;
+  if (count <= 5) return 2;
+  if (count <= 9) return 3;
   return 4;
 }
 
@@ -982,62 +990,76 @@ function OpenSourceSection() {
   );
 }
 
-// ─── Live Coding Activity ─────────────────────────────────────────────────────
+// ─── GitHub Activity ──────────────────────────────────────────────────────────
 
 function GitHubSection() {
-  const [leetcodeStats, setLeetcodeStats] = useState<LeetCodeStats | null>(null);
-  const [loadingLeetcode, setLoadingLeetcode] = useState(true);
-  const [leetcodeError, setLeetcodeError] = useState('');
+  const [contributions, setContributions] = useState<GitHubContributionsResponse | null>(null);
+  const [profile, setProfile] = useState<GitHubProfile | null>(null);
+  const [events, setEvents] = useState<GitHubEvent[]>([]);
+  const [loadingGithub, setLoadingGithub] = useState(true);
+  const [githubError, setGithubError] = useState('');
   const colors = ['bg-white/5', 'bg-emerald-900/70', 'bg-emerald-700/80', 'bg-emerald-500', 'bg-emerald-400'];
-  const months = ['Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-  const heatmap = leetcodeStats ? buildLeetCodeHeatmap(leetcodeStats.submissionCalendar) : null;
+  const heatmap = contributions ? buildGitHubHeatmap(contributions.contributions) : null;
 
   useEffect(() => {
     let active = true;
 
-    async function loadLeetcodeStats() {
+    async function loadGithubActivity() {
       try {
-        const res = await fetch('https://alfa-leetcode-api.onrender.com/syntax_error_s/profile');
-        if (!res.ok) {
-          throw new Error('LeetCode API request failed');
+        const [contribRes, profileRes, eventsRes] = await Promise.all([
+          fetch('https://github-contributions-api.jogruber.de/v4/Sekar-C-Mca?y=last'),
+          fetch('https://api.github.com/users/Sekar-C-Mca'),
+          fetch('https://api.github.com/users/Sekar-C-Mca/events/public?per_page=8'),
+        ]);
+
+        if (!contribRes.ok || !profileRes.ok || !eventsRes.ok) {
+          throw new Error('GitHub API request failed');
         }
-        const data = (await res.json()) as LeetCodeStats;
+
+        const [contribData, profileData, eventsData] = await Promise.all([
+          contribRes.json() as Promise<GitHubContributionsResponse>,
+          profileRes.json() as Promise<GitHubProfile>,
+          eventsRes.json() as Promise<GitHubEvent[]>,
+        ]);
+
         if (active) {
-          setLeetcodeStats(data);
-          setLeetcodeError('');
+          setContributions(contribData);
+          setProfile(profileData);
+          setEvents(eventsData);
+          setGithubError('');
         }
       } catch {
         if (active) {
-          setLeetcodeError('Live LeetCode activity is temporarily unavailable.');
+          setGithubError('Live GitHub activity is temporarily unavailable.');
         }
       } finally {
         if (active) {
-          setLoadingLeetcode(false);
+          setLoadingGithub(false);
         }
       }
     }
 
-    loadLeetcodeStats();
+    loadGithubActivity();
     return () => {
       active = false;
     };
   }, []);
 
   return (
-    <section id="activity" className="py-24 bg-[#050a0e]">
+    <section id="github" className="py-24 bg-[#050a0e]">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <SectionHeader label="Live Activity" title="LeetCode Coding Dashboard" />
+        <SectionHeader label="Live GitHub" title="GitHub Engineering Activity" />
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
           {[
-            { icon: <Award className="w-5 h-5" />, value: leetcodeStats?.totalSolved, label: 'Problems solved', color: 'text-emerald-400' },
-            { icon: <Activity className="w-5 h-5" />, value: leetcodeStats?.ranking ? `#${leetcodeStats.ranking.toLocaleString()}` : undefined, label: 'LeetCode ranking', color: 'text-cyan-400' },
-            { icon: <GitCommit className="w-5 h-5" />, value: leetcodeStats?.contributionPoint, label: 'Contribution points', color: 'text-emerald-400' },
-            { icon: <Star className="w-5 h-5" />, value: leetcodeStats?.reputation, label: 'Reputation', color: 'text-cyan-400' },
+            { icon: <GitCommit className="w-5 h-5" />, value: contributions?.total.lastYear, label: 'Contributions in the last year', color: 'text-emerald-400' },
+            { icon: <Code2 className="w-5 h-5" />, value: profile?.public_repos, label: 'Public repositories', color: 'text-cyan-400' },
+            { icon: <Activity className="w-5 h-5" />, value: events.length || undefined, label: 'Recent public events', color: 'text-emerald-400' },
+            { icon: <Star className="w-5 h-5" />, value: profile?.followers, label: 'GitHub followers', color: 'text-cyan-400' },
           ].map((s, i) => (
             <a
               key={i}
-              href={socialLinks.leetcode}
+              href={socialLinks.github}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 p-4 bg-white/3 border border-white/8 rounded-2xl hover:border-emerald-400/40 transition-all"
@@ -1045,7 +1067,7 @@ function GitHubSection() {
               <div className={s.color}>{s.icon}</div>
               <div>
                 <div className={`text-xl font-bold ${s.color}`}>
-                  {loadingLeetcode ? '...' : s.value ?? '--'}
+                  {loadingGithub ? '...' : s.value ?? '--'}
                 </div>
                 <div className="text-gray-600 text-xs">{s.label}</div>
               </div>
@@ -1058,32 +1080,36 @@ function GitHubSection() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-5 pt-5 pb-4">
               <div>
                 <h3 className="text-base font-normal text-white">
-                  {loadingLeetcode
-                    ? 'Loading live LeetCode activity'
-                    : leetcodeStats
-                      ? `${leetcodeStats.totalSolved} LeetCode problems solved`
-                      : 'LeetCode activity unavailable'}
+                  {loadingGithub
+                    ? 'Loading live GitHub contributions'
+                    : contributions
+                      ? `${contributions.total.lastYear} contributions in the last year`
+                      : 'GitHub contributions unavailable'}
                 </h3>
-                <p className="text-xs text-gray-500 mt-1">Live data from alfa-leetcode-api for syntax_error_s</p>
+                <p className="text-xs text-gray-500 mt-1">Live calendar from GitHub contribution data for Sekar-C-Mca</p>
               </div>
               <a
-                href={socialLinks.leetcode}
+                href={socialLinks.github}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300 transition-colors sm:ml-auto"
               >
-                leetcode.com/syntax_error_s
+                github.com/Sekar-C-Mca
                 <ExternalLink className="w-3 h-3" />
               </a>
             </div>
 
             <div className="px-5 overflow-x-auto">
-              <div className="min-w-max">
-                <div className="flex gap-0.5 mb-1 pl-7">
-                  {months.map((m) => (
-                    <div key={m} className="text-xs text-gray-400 shrink-0" style={{ width: '34px' }}>
-                      {m}
-                    </div>
+              <div className="relative min-w-[728px]">
+                <div className="relative h-5 mb-1 ml-7">
+                  {heatmap?.monthLabels.map((month) => (
+                    <span
+                      key={`${month.label}-${month.offset}`}
+                      className="absolute text-xs text-gray-400"
+                      style={{ left: `${month.offset * 13}px` }}
+                    >
+                      {month.label}
+                    </span>
                   ))}
                 </div>
                 <div className="flex gap-1">
@@ -1097,12 +1123,12 @@ function GitHubSection() {
                       ? heatmap.weeks.map((week, wi) => (
                           <div key={wi} className="flex flex-col gap-0.5">
                             {week.map((day) => {
-                              const level = getHeatLevel(day.count, heatmap.max);
+                              const level = getGitHubHeatLevel(day.count);
                               return (
                                 <div
                                   key={day.date}
                                   className={`w-2.5 h-2.5 rounded-sm ${colors[level]} transition-opacity hover:opacity-80`}
-                                  title={day.count > 0 ? `${day.count} submissions on ${day.date}` : `No submissions on ${day.date}`}
+                                  title={day.count > 0 ? `${day.count} contributions on ${day.date}` : `No contributions on ${day.date}`}
                                 />
                               );
                             })}
@@ -1121,7 +1147,7 @@ function GitHubSection() {
             </div>
 
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-5 pt-3 pb-4 text-xs text-gray-500">
-              <span>{leetcodeError || 'Submission calendar reflects live LeetCode API data.'}</span>
+              <span>{githubError || 'Calendar updates from the live GitHub contribution feed.'}</span>
               <div className="flex items-center gap-1.5">
                 <span>Less</span>
                 {colors.map((c, i) => <div key={i} className={`w-2.5 h-2.5 rounded-sm ${c}`} />)}
@@ -1132,60 +1158,54 @@ function GitHubSection() {
             <div className="border-t border-white/10 px-5 py-4">
               <div className="grid md:grid-cols-[1fr_1.1fr] gap-8">
                 <div>
-                  <h4 className="text-sm font-semibold text-white mb-5">Activity Overview</h4>
+                  <h4 className="text-sm font-semibold text-white mb-5">Recent GitHub Activity</h4>
                   <div className="space-y-3">
-                    {leetcodeStats?.recentSubmissions?.slice(0, 4).map((submission) => (
+                    {events.slice(0, 4).map((event) => (
                       <a
-                        key={`${submission.titleSlug}-${submission.timestamp}`}
-                        href={`https://leetcode.com/problems/${submission.titleSlug}/`}
+                        key={event.id}
+                        href={`https://github.com/${event.repo.name}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-start gap-3 text-sm text-white hover:text-emerald-300 transition-colors"
                       >
                         <BookOpen className="w-4 h-4 text-gray-500 mt-0.5 shrink-0" />
                         <span>
-                          {submission.title}
-                          <span className="ml-2 text-xs text-gray-500">{submission.lang} · {submission.statusDisplay}</span>
+                          {event.type.replace('Event', '')} in{' '}
+                          <span className="text-[#2f81f7] font-semibold">{event.repo.name}</span>
+                          <span className="ml-2 text-xs text-gray-500">{new Date(event.created_at).toLocaleDateString()}</span>
                         </span>
                       </a>
                     ))}
-                    {!loadingLeetcode && !leetcodeStats && (
-                      <p className="text-sm text-gray-400">Live recent submissions could not be loaded right now.</p>
+                    {!loadingGithub && events.length === 0 && (
+                      <p className="text-sm text-gray-400">Live recent GitHub events could not be loaded right now.</p>
                     )}
                   </div>
                 </div>
 
-                <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
                   {[
-                    { label: 'Easy', solved: leetcodeStats?.easySolved, total: leetcodeStats?.totalEasy, color: 'bg-emerald-500', text: 'text-emerald-400' },
-                    { label: 'Medium', solved: leetcodeStats?.mediumSolved, total: leetcodeStats?.totalMedium, color: 'bg-yellow-500', text: 'text-yellow-400' },
-                    { label: 'Hard', solved: leetcodeStats?.hardSolved, total: leetcodeStats?.totalHard, color: 'bg-red-500', text: 'text-red-400' },
-                  ].map((item) => {
-                    const pct = item.solved && item.total ? Math.max(4, (item.solved / item.total) * 100) : 0;
-                    return (
-                      <div key={item.label}>
-                        <div className="flex justify-between mb-1.5">
-                          <span className="text-sm text-gray-400">{item.label}</span>
-                          <span className={`text-sm font-medium ${item.text}`}>
-                            {loadingLeetcode ? '...' : `${item.solved ?? '--'} / ${item.total ?? '--'}`}
-                          </span>
-                        </div>
-                        <div className="w-full bg-white/5 rounded-full h-1.5">
-                          <div className={`${item.color} h-1.5 rounded-full`} style={{ width: `${pct}%` }} />
-                        </div>
+                    { label: 'Source', value: 'GitHub API', color: 'text-emerald-400' },
+                    { label: 'Calendar', value: 'Live feed', color: 'text-cyan-400' },
+                    { label: 'Following', value: profile?.following, color: 'text-emerald-400' },
+                    { label: 'Profile', value: 'Public', color: 'text-cyan-400' },
+                  ].map((item) => (
+                    <div key={item.label} className="bg-white/5 border border-white/10 rounded-xl p-4">
+                      <div className={`text-lg font-bold ${item.color}`}>
+                        {loadingGithub ? '...' : item.value ?? '--'}
                       </div>
-                    );
-                  })}
+                      <div className="text-xs text-gray-500">{item.label}</div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
           </div>
 
           <div className="hidden lg:flex flex-col gap-3">
-            {['Live', 'LeetCode', 'API'].map((item) => (
+            {['Live', 'GitHub', 'API'].map((item) => (
               <a
                 key={item}
-                href={socialLinks.leetcode}
+                href={socialLinks.github}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={`rounded-md px-5 py-3 text-sm transition-all ${
@@ -1200,7 +1220,6 @@ function GitHubSection() {
           </div>
         </div>
 
-        {/* Pinned repos */}
         <h3 className="text-lg font-semibold text-white mt-10 mb-5">Pinned AI Repositories</h3>
         <div className="grid sm:grid-cols-2 gap-4">
           {projects.map((p) => (
