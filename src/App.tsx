@@ -207,7 +207,7 @@ function Navbar() {
     return () => window.removeEventListener('scroll', fn);
   }, []);
 
-  const links = ['Education', 'About', 'Expertise', 'Projects', 'Open Source', 'Activity', 'LeetCode', 'Contact'];
+  const links = ['Education', 'About', 'Expertise', 'Projects', 'Open Source', 'GitHub', 'LeetCode', 'Contact'];
 
   return (
     <nav
