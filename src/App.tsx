@@ -1075,7 +1075,7 @@ function GitHubSection() {
           ))}
         </div>
 
-        <div className="grid lg:grid-cols-[1fr_128px] gap-5">
+        <div>
           <div className="bg-white/3 border border-white/10 rounded-lg overflow-hidden">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-5 pt-5 pb-4">
               <div>
@@ -1199,24 +1199,6 @@ function GitHubSection() {
                 </div>
               </div>
             </div>
-          </div>
-
-          <div className="hidden lg:flex flex-col gap-3">
-            {['Live', 'GitHub', 'API'].map((item) => (
-              <a
-                key={item}
-                href={socialLinks.github}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`rounded-md px-5 py-3 text-sm transition-all ${
-                  item === 'Live'
-                    ? 'bg-emerald-500 text-[#050a0e] font-semibold'
-                    : 'text-gray-400 hover:bg-white/5 hover:text-white'
-                }`}
-              >
-                {item}
-              </a>
-            ))}
           </div>
         </div>
 
