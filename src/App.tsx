@@ -812,10 +812,10 @@ function Projects() {
                       href={p.docs}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-white transition-colors"
+                      className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-500 text-[#050a0e] rounded-lg text-sm font-semibold hover:bg-emerald-400 transition-colors"
                     >
-                      <FileText className="w-4 h-4" />
-                      Docs
+                      <FileText className="w-3.5 h-3.5" />
+                      Proof of Work
                     </a>
                   )}
                 </div>
